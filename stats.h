@@ -4,20 +4,20 @@
 //
 // Copyright (c) 2015 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -47,89 +47,92 @@
 //   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 //   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef DUMP1090_STATS_H
-#define DUMP1090_STATS_H
+#ifndef DUMP1090_STATS_H_
+#define DUMP1090_STATS_H_
+
+
 
 struct stats {
-    uint64_t start;
-    uint64_t end;
+	uint64_t start;
+	uint64_t end;
 
-    // Mode S demodulator counts:
-    uint32_t demod_preambles;
-    uint32_t demod_rejected_bad;
-    uint32_t demod_rejected_unknown_icao;
-    uint32_t demod_accepted[MODES_MAX_BITERRORS+1];
+	/* Mode S demodulator counts: */
+	uint32_t demod_preambles;
+	uint32_t demod_rejected_bad;
+	uint32_t demod_rejected_unknown_icao;
+	uint32_t demod_accepted[MODES_MAX_BITERRORS+1];
 
-    // Mode A/C demodulator counts:
-    uint32_t demod_modeac;
+	/* Mode A/C demodulator counts: */
+	uint32_t demod_modeac;
 
-    uint64_t samples_processed;
-    uint64_t samples_dropped;
+	uint64_t samples_processed;
+	uint64_t samples_dropped;
 
-    // timing:
-    struct timespec demod_cpu;
-    struct timespec reader_cpu;
-    struct timespec background_cpu;
+	/* timing: */
+	struct timespec demod_cpu;
+	struct timespec reader_cpu;
+	struct timespec background_cpu;
 
-    // noise floor:
-    double noise_power_sum;
-    uint64_t noise_power_count;
+	/* noise floor: */
+	double noise_power_sum;
+	uint64_t noise_power_count;
 
-    // mean signal power:
-    double signal_power_sum;
-    uint64_t signal_power_count;
+	/* mean signal power: */
+	double signal_power_sum;
+	uint64_t signal_power_count;
 
-    // peak signal power seen
-    double peak_signal_power;
+	/* peak signal power seen */
+	double peak_signal_power;
 
-    // number of signals with power > -3dBFS
-    uint32_t strong_signal_count;
+	/* number of signals with power > -3dBFS */
+	uint32_t strong_signal_count;
 
-    // remote messages:
-    uint32_t remote_received_modeac;
-    uint32_t remote_received_modes;
-    uint32_t remote_rejected_bad;
-    uint32_t remote_rejected_unknown_icao;
-    uint32_t remote_accepted[MODES_MAX_BITERRORS+1];
+	/* remote messages: */
+	uint32_t remote_received_modeac;
+	uint32_t remote_received_modes;
+	uint32_t remote_rejected_bad;
+	uint32_t remote_rejected_unknown_icao;
+	uint32_t remote_accepted[MODES_MAX_BITERRORS+1];
 
-    // total messages:
-    uint32_t messages_total;
+	/* total messages: */
+	uint32_t messages_total;
 
 #ifdef ENABLE_WEBSERVER
-    // network:
-    uint32_t http_requests;
+	/* network: */
+	uint32_t http_requests;
 #endif
 
-    // CPR decoding:
-    unsigned int cpr_surface;
-    unsigned int cpr_airborne;
-    unsigned int cpr_global_ok;
-    unsigned int cpr_global_bad;
-    unsigned int cpr_global_skipped;
-    unsigned int cpr_global_range_checks;
-    unsigned int cpr_global_speed_checks;
-    unsigned int cpr_local_ok;
-    unsigned int cpr_local_skipped;
-    unsigned int cpr_local_range_checks;
-    unsigned int cpr_local_speed_checks;
-    unsigned int cpr_local_aircraft_relative;
-    unsigned int cpr_local_receiver_relative;
-    unsigned int cpr_filtered;
+	/* CPR decoding: */
+	unsigned int cpr_surface;
+	unsigned int cpr_airborne;
+	unsigned int cpr_global_ok;
+	unsigned int cpr_global_bad;
+	unsigned int cpr_global_skipped;
+	unsigned int cpr_global_range_checks;
+	unsigned int cpr_global_speed_checks;
+	unsigned int cpr_local_ok;
+	unsigned int cpr_local_skipped;
+	unsigned int cpr_local_range_checks;
+	unsigned int cpr_local_speed_checks;
+	unsigned int cpr_local_aircraft_relative;
+	unsigned int cpr_local_receiver_relative;
+	unsigned int cpr_filtered;
 
-    // number of altitude messages ignored because
-    // we had a recent DF17/18 altitude
-    unsigned int suppressed_altitude_messages;
+	/* number of altitude messages ignored because we had a recent DF17/18 altitude */
+	unsigned int suppressed_altitude_messages;
 
-    // aircraft:
-    // total "new" aircraft (i.e. not seen in the last 30 or 300s)
-    unsigned int unique_aircraft;
-    // we saw only a single message
-    unsigned int single_message_aircraft;
+	/* aircraft: */
+	/* total "new" aircraft (i.e. not seen in the last 30 or 300s) */
+	unsigned int unique_aircraft;
+	/* we saw only a single message */
+	unsigned int single_message_aircraft;
 
-    // range histogram
+	/* range histogram */
 #define RANGE_BUCKET_COUNT 76
-    uint32_t range_histogram[RANGE_BUCKET_COUNT];
-};    
+	uint32_t range_histogram[RANGE_BUCKET_COUNT];
+};
+
+
 
 void add_stats(const struct stats *st1, const struct stats *st2, struct stats *target);
 void display_stats(struct stats *st);
@@ -137,4 +140,6 @@ void reset_stats(struct stats *st);
 
 void add_timespecs(const struct timespec *x, const struct timespec *y, struct timespec *z);
 
-#endif
+
+
+#endif	/* !DUMP1090_STATS_H_ */

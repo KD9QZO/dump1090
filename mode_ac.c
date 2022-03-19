@@ -29,49 +29,49 @@
 //
 
 #include "dump1090.h"
+
 //
 //=========================================================================
 //
 // Input format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
 //
-int ModeAToModeC(unsigned int ModeA) 
-{
-  unsigned int FiveHundreds = 0;
-  unsigned int OneHundreds  = 0;
+int ModeAToModeC(unsigned int ModeA) {
+	unsigned int FiveHundreds = 0;
+	unsigned int OneHundreds  = 0;
 
-  if ((ModeA & 0xFFFF8889) != 0 ||         // check zero bits are zero, D1 set is illegal
-      (ModeA & 0x000000F0) == 0) { // C1,,C4 cannot be Zero
-      return INVALID_ALTITUDE;
-  }
+	if ((ModeA & 0xFFFF8889) != 0 ||         // check zero bits are zero, D1 set is illegal
+			(ModeA & 0x000000F0) == 0) { // C1,,C4 cannot be Zero
+		return (INVALID_ALTITUDE);
+	}
 
-  if (ModeA & 0x0010) {OneHundreds ^= 0x007;} // C1
-  if (ModeA & 0x0020) {OneHundreds ^= 0x003;} // C2
-  if (ModeA & 0x0040) {OneHundreds ^= 0x001;} // C4
+	if (ModeA & 0x0010) {OneHundreds ^= 0x007;} // C1
+	if (ModeA & 0x0020) {OneHundreds ^= 0x003;} // C2
+	if (ModeA & 0x0040) {OneHundreds ^= 0x001;} // C4
 
-  // Remove 7s from OneHundreds (Make 7->5, snd 5->7). 
-  if ((OneHundreds & 5) == 5) {OneHundreds ^= 2;}
+	// Remove 7s from OneHundreds (Make 7->5, snd 5->7).
+	if ((OneHundreds & 5) == 5) {OneHundreds ^= 2;}
 
-  // Check for invalid codes, only 1 to 5 are valid 
-  if (OneHundreds > 5) {
-      return INVALID_ALTITUDE;
-  }
+	// Check for invalid codes, only 1 to 5 are valid
+	if (OneHundreds > 5) {
+		return (INVALID_ALTITUDE);
+	}
 
-//if (ModeA & 0x0001) {FiveHundreds ^= 0x1FF;} // D1 never used for altitude
-  if (ModeA & 0x0002) {FiveHundreds ^= 0x0FF;} // D2
-  if (ModeA & 0x0004) {FiveHundreds ^= 0x07F;} // D4
+//	if (ModeA & 0x0001) {FiveHundreds ^= 0x1FF;} // D1 never used for altitude
+	if (ModeA & 0x0002) {FiveHundreds ^= 0x0FF;} // D2
+	if (ModeA & 0x0004) {FiveHundreds ^= 0x07F;} // D4
 
-  if (ModeA & 0x1000) {FiveHundreds ^= 0x03F;} // A1
-  if (ModeA & 0x2000) {FiveHundreds ^= 0x01F;} // A2
-  if (ModeA & 0x4000) {FiveHundreds ^= 0x00F;} // A4
+	if (ModeA & 0x1000) {FiveHundreds ^= 0x03F;} // A1
+	if (ModeA & 0x2000) {FiveHundreds ^= 0x01F;} // A2
+	if (ModeA & 0x4000) {FiveHundreds ^= 0x00F;} // A4
 
-  if (ModeA & 0x0100) {FiveHundreds ^= 0x007;} // B1 
-  if (ModeA & 0x0200) {FiveHundreds ^= 0x003;} // B2
-  if (ModeA & 0x0400) {FiveHundreds ^= 0x001;} // B4
-    
-  // Correct order of OneHundreds. 
-  if (FiveHundreds & 1) {OneHundreds = 6 - OneHundreds;} 
+	if (ModeA & 0x0100) {FiveHundreds ^= 0x007;} // B1
+	if (ModeA & 0x0200) {FiveHundreds ^= 0x003;} // B2
+	if (ModeA & 0x0400) {FiveHundreds ^= 0x001;} // B4
 
-  return ((FiveHundreds * 5) + OneHundreds - 13); 
+	// Correct order of OneHundreds.
+	if (FiveHundreds & 1) {OneHundreds = 6 - OneHundreds;}
+
+	return ((FiveHundreds * 5) + OneHundreds - 13);
 }
 //
 //=========================================================================

@@ -9,8 +9,7 @@ import sqlite3, csv, sys
 from contextlib import closing
 
 def extract(dbfile):
-    writer = csv.DictWriter(sys.stdout,
-                            fieldnames=['icao24', 'r', 't'])
+    writer = csv.DictWriter(sys.stdout, fieldnames=['icao24', 'r', 't'])
     writer.writeheader()
     with closing(sqlite3.connect(dbfile)) as db:
         with closing(db.execute('SELECT a.Icao, a.Registration, m.Icao FROM Aircraft a, Model m WHERE a.ModelID = m.ModelID')) as c:

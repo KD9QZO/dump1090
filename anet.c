@@ -68,132 +68,155 @@
 
 #include "anet.h"
 
-static void anetSetError(char *err, const char *fmt, ...)
-{
-    va_list ap;
 
-    if (!err) return;
-    va_start(ap, fmt);
-    vsnprintf(err, ANET_ERR_LEN, fmt, ap);
-    va_end(ap);
+
+static void anetSetError(char *err, const char *fmt, ...) {
+	va_list ap;
+
+	if (!err) {
+		return;
+	}
+
+	va_start(ap, fmt);
+	vsnprintf(err, ANET_ERR_LEN, fmt, ap);
+	va_end(ap);
 }
 
-int anetNonBlock(char *err, int fd)
-{
-    int flags;
+int anetNonBlock(char *err, int fd) {
+	int flags;
 
-    /* Set the socket nonblocking.
-     * Note that fcntl(2) for F_GETFL and F_SETFL can't be
-     * interrupted by a signal. */
-    if ((flags = fcntl(fd, F_GETFL)) == -1) {
-        anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
-        return ANET_ERR;
-    }
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
-        anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
-        return ANET_ERR;
-    }
+	/*
+	 * Set the socket nonblocking.
+	 *
+	 * Note that fcntl(2) for F_GETFL and F_SETFL can't be interrupted by a signal.
+	 */
+	if ((flags = fcntl(fd, F_GETFL)) == -1) {
+		anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
 
-    return ANET_OK;
+		return (ANET_ERR);
+	}
+
+	if (fcntl(fd, F_SETFL, (flags | O_NONBLOCK)) == -1) {
+		anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
+
+		return (ANET_ERR);
+	}
+
+	return (ANET_OK);
 }
 
-int anetTcpNoDelay(char *err, int fd)
-{
-    int yes = 1;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void*)&yes, sizeof(yes)) == -1)
-    {
-        anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
+int anetTcpNoDelay(char *err, int fd) {
+	int yes = 1;
+
+	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void*)&yes, sizeof(yes)) == -1) {
+		anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
+
+		return (ANET_ERR);
+	}
+
+	return (ANET_OK);
 }
 
-int anetSetSendBuffer(char *err, int fd, int buffsize)
-{
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (void*)&buffsize, sizeof(buffsize)) == -1)
-    {
-        anetSetError(err, "setsockopt SO_SNDBUF: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
+int anetSetSendBuffer(char *err, int fd, int buffsize) {
+	if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (void*)&buffsize, sizeof(buffsize)) == -1) {
+		anetSetError(err, "setsockopt SO_SNDBUF: %s", strerror(errno));
+
+		return (ANET_ERR);
+	}
+
+	return (ANET_OK);
 }
 
-int anetTcpKeepAlive(char *err, int fd)
-{
-    int yes = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void*)&yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
+int anetTcpKeepAlive(char *err, int fd) {
+	int yes = 1;
+
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void*)&yes, sizeof(yes)) == -1) {
+		anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
+
+		return (ANET_ERR);
+	}
+
+	return (ANET_OK);
 }
 
-static int anetCreateSocket(char *err, int domain)
-{
-    int s, on = 1;
-    if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
-        anetSetError(err, "creating socket: %s", strerror(errno));
-        return ANET_ERR;
-    }
+static int anetCreateSocket(char *err, int domain) {
+	int s;
+	int on = 1;
 
-    /* Make sure connection-intensive things like the redis benckmark
-     * will be able to close/open sockets a zillion of times */
-    if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (void*)&on, sizeof(on)) == -1) {
-        anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return s;
+	if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
+		anetSetError(err, "creating socket: %s", strerror(errno));
+
+		return (ANET_ERR);
+	}
+
+	/* Make sure connection-intensive things like the redis benckmark will be able to close/open sockets a zillion of times */
+	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (void*)&on, sizeof(on)) == -1) {
+		anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
+
+		return (ANET_ERR);
+	}
+
+	return (s);
 }
 
-#define ANET_CONNECT_NONE 0
-#define ANET_CONNECT_NONBLOCK 1
-static int anetTcpGenericConnect(char *err, char *addr, char *service, int flags)
-{
-    int s;
-    struct addrinfo gai_hints;
-    struct addrinfo *gai_result, *p;
-    int gai_error;
 
-    gai_hints.ai_family = AF_UNSPEC;
-    gai_hints.ai_socktype = SOCK_STREAM;
-    gai_hints.ai_protocol = 0;
-    gai_hints.ai_flags = 0;
-    gai_hints.ai_addrlen = 0;
-    gai_hints.ai_addr = NULL;
-    gai_hints.ai_canonname = NULL;
-    gai_hints.ai_next = NULL;
+#define ANET_CONNECT_NONE		0
+#define ANET_CONNECT_NONBLOCK	1
 
-    gai_error = getaddrinfo(addr, service, &gai_hints, &gai_result);
-    if (gai_error != 0) {
-        anetSetError(err, "can't resolve %s: %s", addr, gai_strerror(gai_error));
-        return ANET_ERR;
-    }
 
-    for (p = gai_result; p != NULL; p = p->ai_next) {
-        if ((s = anetCreateSocket(err, p->ai_family)) == ANET_ERR)
-            continue;
+static int anetTcpGenericConnect(char *err, char *addr, char *service, int flags) {
+	int s;
+	struct addrinfo gai_hints;
+	struct addrinfo *gai_result;
+	struct addrinfo *p;
+	int gai_error;
 
-        if (flags & ANET_CONNECT_NONBLOCK) {
-            if (anetNonBlock(err,s) != ANET_OK)
-                return ANET_ERR;
-        }
+	gai_hints.ai_family = AF_UNSPEC;
+	gai_hints.ai_socktype = SOCK_STREAM;
+	gai_hints.ai_protocol = 0;
+	gai_hints.ai_flags = 0;
+	gai_hints.ai_addrlen = 0;
+	gai_hints.ai_addr = NULL;
+	gai_hints.ai_canonname = NULL;
+	gai_hints.ai_next = NULL;
 
-        if (connect(s, p->ai_addr, p->ai_addrlen) >= 0) {
-            freeaddrinfo(gai_result);
-            return s;
-        }
+	gai_error = getaddrinfo(addr, service, &gai_hints, &gai_result);
+	if (gai_error != 0) {
+		anetSetError(err, "can't resolve %s: %s", addr, gai_strerror(gai_error));
 
-        if (errno == EINPROGRESS && (flags & ANET_CONNECT_NONBLOCK)) {
-            freeaddrinfo(gai_result);
-            return s;
-        }
+		return (ANET_ERR);
+	}
 
-        anetSetError(err, "connect: %s", strerror(errno));
-        close(s);
-    }
+	for (p = gai_result; p != NULL; p = p->ai_next) {
+		if ((s = anetCreateSocket(err, p->ai_family)) == ANET_ERR) {
+			continue;
+		}
 
-    freeaddrinfo(gai_result);
-    return ANET_ERR;
+		if (flags & ANET_CONNECT_NONBLOCK) {
+			if (anetNonBlock(err,s) != ANET_OK) {
+				return (ANET_ERR);
+			}
+		}
+
+		if (connect(s, p->ai_addr, p->ai_addrlen) >= 0) {
+			freeaddrinfo(gai_result);
+
+			return (s);
+		}
+
+		if (errno == EINPROGRESS && (flags & ANET_CONNECT_NONBLOCK)) {
+			freeaddrinfo(gai_result);
+
+			return (s);
+		}
+
+		anetSetError(err, "connect: %s", strerror(errno));
+		close(s);
+	}
+
+	freeaddrinfo(gai_result);
+
+	return (ANET_ERR);
 }
 
 int anetTcpConnect(char *err, char *addr, char *service)

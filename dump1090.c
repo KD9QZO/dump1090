@@ -4,20 +4,20 @@
 //
 // Copyright (c) 2014-2016 Oliver Jowett <oliver@mutability.co.uk>
 //
-// This file is free software: you may copy, redistribute and/or modify it  
+// This file is free software: you may copy, redistribute and/or modify it
 // under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 2 of the License, or (at your  
-// option) any later version.  
+// Free Software Foundation, either version 2 of the License, or (at your
+// option) any later version.
 //
-// This file is distributed in the hope that it will be useful, but  
-// WITHOUT ANY WARRANTY; without even the implied warranty of  
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU  
+// This file is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License  
+// You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// This file incorporates work covered by the following copyright and  
+// This file incorporates work covered by the following copyright and
 // permission notice:
 //
 //   Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
@@ -50,225 +50,243 @@
 #include "dump1090.h"
 
 #include <rtl-sdr.h>
-
 #include <stdarg.h>
 
+
+
 static int verbose_device_search(char *s);
+
 
 //
 // ============================= Utility functions ==========================
 //
 
-static void log_with_timestamp(const char *format, ...) __attribute__((format (printf, 1, 2) ));
+static void log_with_timestamp(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
-static void log_with_timestamp(const char *format, ...)
-{
-    char timebuf[128];
-    char msg[1024];
-    time_t now;
-    struct tm local;
-    va_list ap;
+static void log_with_timestamp(const char *format, ...) {
+	char timebuf[128];
+	char msg[1024];
+	time_t now;
+	struct tm local;
+	va_list ap;
 
-    now = time(NULL);
-    localtime_r(&now, &local);
-    strftime(timebuf, 128, "%c %Z", &local);
-    timebuf[127] = 0;
+	now = time(NULL);
+	localtime_r(&now, &local);
+	strftime(timebuf, 128, "%c %Z", &local);
+	timebuf[127] = 0;
 
-    va_start(ap, format);
-    vsnprintf(msg, 1024, format, ap);
-    va_end(ap);
-    msg[1023] = 0;
+	va_start(ap, format);
+	vsnprintf(msg, 1024, format, ap);
+	va_end(ap);
+	msg[1023] = 0;
 
-    fprintf(stderr, "%s  %s\n", timebuf, msg);
+	fprintf(stderr, "%s  %s\n", timebuf, msg);
 }
 
 static void sigintHandler(int dummy) {
-    MODES_NOTUSED(dummy);
-    signal(SIGINT, SIG_DFL);  // reset signal handler - bit extra safety
-    Modes.exit = 1;           // Signal to threads that we are done
-    log_with_timestamp("Caught SIGINT, shutting down..\n");
+	MODES_NOTUSED(dummy);
+
+	signal(SIGINT, SIG_DFL);	// reset signal handler - bit extra safety
+	Modes.exit = 1;				// Signal to threads that we are done
+	log_with_timestamp("Caught SIGINT, shutting down..\n");
 }
 
 static void sigtermHandler(int dummy) {
-    MODES_NOTUSED(dummy);
-    signal(SIGTERM, SIG_DFL); // reset signal handler - bit extra safety
-    Modes.exit = 1;           // Signal to threads that we are done
-    log_with_timestamp("Caught SIGTERM, shutting down..\n");
+	MODES_NOTUSED(dummy);
+
+	signal(SIGTERM, SIG_DFL);	// reset signal handler - bit extra safety
+	Modes.exit = 1;				// Signal to threads that we are done
+	log_with_timestamp("Caught SIGTERM, shutting down..\n");
 }
+
+
 //
 // =============================== Terminal handling ========================
 //
 #ifndef _WIN32
 // Get the number of rows after the terminal changes size.
-int getTermRows() { 
-    struct winsize w; 
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w); 
-    return (w.ws_row); 
-} 
+int getTermRows() {
+	struct winsize w;
+
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+	return (w.ws_row);
+}
 
 // Handle resizing terminal
 void sigWinchCallback() {
-    signal(SIGWINCH, SIG_IGN);
-    Modes.interactive_rows = getTermRows();
-    interactiveShowData();
-    signal(SIGWINCH, sigWinchCallback); 
+	signal(SIGWINCH, SIG_IGN);
+	Modes.interactive_rows = getTermRows();
+	interactiveShowData();
+	signal(SIGWINCH, sigWinchCallback);
 }
-#else 
-int getTermRows() { return MODES_INTERACTIVE_ROWS;}
+
+#else
+int getTermRows() {
+	return (MODES_INTERACTIVE_ROWS);
+}
+
 #endif
 
-static void start_cpu_timing(struct timespec *start_time)
-{
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, start_time);
+static void start_cpu_timing(struct timespec *start_time) {
+	clock_gettime(CLOCK_THREAD_CPUTIME_ID, start_time);
 }
 
-static void end_cpu_timing(const struct timespec *start_time, struct timespec *add_to)
-{
-    struct timespec end_time;
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &end_time);
-    add_to->tv_sec += (end_time.tv_sec - start_time->tv_sec - 1);
-    add_to->tv_nsec += (1000000000L + end_time.tv_nsec - start_time->tv_nsec);
-    add_to->tv_sec += add_to->tv_nsec / 1000000000L;
-    add_to->tv_nsec = add_to->tv_nsec % 1000000000L;
+static void end_cpu_timing(const struct timespec *start_time, struct timespec *add_to) {
+	struct timespec end_time;
+
+	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &end_time);
+	add_to->tv_sec += (end_time.tv_sec - start_time->tv_sec - 1);
+	add_to->tv_nsec += (1000000000L + end_time.tv_nsec - start_time->tv_nsec);
+	add_to->tv_sec += add_to->tv_nsec / 1000000000L;
+	add_to->tv_nsec = add_to->tv_nsec % 1000000000L;
 }
+
+
 
 //
 // =============================== Initialization ===========================
 //
-void modesInitConfig(void) {
-    // Default everything to zero/NULL
-    memset(&Modes, 0, sizeof(Modes));
 
-    // Now initialise things that should not be 0/NULL to their defaults
-    Modes.gain                    = MODES_MAX_GAIN;
-    Modes.freq                    = MODES_DEFAULT_FREQ;
-    Modes.ppm_error               = MODES_DEFAULT_PPM;
-    Modes.check_crc               = 1;
-    Modes.net_heartbeat_interval  = MODES_NET_HEARTBEAT_INTERVAL;
-    Modes.net_input_raw_ports     = strdup("30001");
-    Modes.net_output_raw_ports    = strdup("30002");
-    Modes.net_output_sbs_ports    = strdup("30003");
-    Modes.net_input_beast_ports   = strdup("30004,30104");
-    Modes.net_output_beast_ports  = strdup("30005");
+void modesInitConfig(void) {
+	// Default everything to zero/NULL
+	memset(&Modes, 0, sizeof(Modes));
+
+	// Now initialise things that should not be 0/NULL to their defaults
+	Modes.gain = MODES_MAX_GAIN;
+	Modes.freq = MODES_DEFAULT_FREQ;
+	Modes.ppm_error = MODES_DEFAULT_PPM;
+	Modes.check_crc = 1;
+	Modes.net_heartbeat_interval = MODES_NET_HEARTBEAT_INTERVAL;
+	Modes.net_input_raw_ports = strdup("30001");
+	Modes.net_output_raw_ports = strdup("30002");
+	Modes.net_output_sbs_ports = strdup("30003");
+	Modes.net_input_beast_ports = strdup("30004,30104");
+	Modes.net_output_beast_ports = strdup("30005");
 #ifdef ENABLE_WEBSERVER
-    Modes.net_http_ports          = strdup("8080");
+	Modes.net_http_ports = strdup("8080");
 #endif
-    Modes.interactive_rows        = getTermRows();
-    Modes.interactive_display_ttl = MODES_INTERACTIVE_DISPLAY_TTL;
-    Modes.html_dir                = HTMLPATH;
-    Modes.json_interval           = 1000;
-    Modes.json_location_accuracy  = 1;
-    Modes.maxRange                = 1852 * 300; // 300NM default max range
+	Modes.interactive_rows = getTermRows();
+	Modes.interactive_display_ttl = MODES_INTERACTIVE_DISPLAY_TTL;
+	Modes.html_dir = HTMLPATH;
+	Modes.json_interval = 1000;
+	Modes.json_location_accuracy = 1;
+	Modes.maxRange = 1852 * 300;										// 300NM default max range
 }
+
+
 //
 //=========================================================================
 //
 void modesInit(void) {
-    int i, q;
+	int i;
+	int q;
 
-    pthread_mutex_init(&Modes.data_mutex,NULL);
-    pthread_cond_init(&Modes.data_cond,NULL);
+	pthread_mutex_init(&Modes.data_mutex, NULL);
+	pthread_cond_init(&Modes.data_cond, NULL);
 
-    Modes.sample_rate = 2400000.0;
+	Modes.sample_rate = 2400000.0;
 
-    // Allocate the various buffers used by Modes
-    Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1e-6 * Modes.sample_rate;
+	// Allocate the various buffers used by Modes
+	Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1e-6 * Modes.sample_rate;
 
-    if ( ((Modes.maglut     = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) ||
-         ((Modes.log10lut   = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) )
-    {
-        fprintf(stderr, "Out of memory allocating data buffer.\n");
-        exit(1);
-    }
+	if (((Modes.maglut = (uint16_t*)malloc(sizeof(uint16_t) * 256 * 256)) == NULL) || ((Modes.log10lut = (uint16_t*)malloc(sizeof(uint16_t) * 256 * 256)) == NULL)) {
+		fprintf(stderr, "Out of memory allocating data buffer.\n");
+		exit(1);
+	}
 
-    for (i = 0; i < MODES_MAG_BUFFERS; ++i) {
-        if ( (Modes.mag_buffers[i].data = calloc(MODES_MAG_BUF_SAMPLES+Modes.trailing_samples, sizeof(uint16_t))) == NULL ) {
-            fprintf(stderr, "Out of memory allocating magnitude buffer.\n");
-            exit(1);
-        }
+	for (i = 0; i < MODES_MAG_BUFFERS; ++i) {
+		if ((Modes.mag_buffers[i].data = calloc(MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, sizeof(uint16_t))) == NULL) {
+			fprintf(stderr, "Out of memory allocating magnitude buffer.\n");
+			exit(1);
+		}
 
-        Modes.mag_buffers[i].length = 0;
-        Modes.mag_buffers[i].dropped = 0;
-        Modes.mag_buffers[i].sampleTimestamp = 0;
-    }
+		Modes.mag_buffers[i].length = 0;
+		Modes.mag_buffers[i].dropped = 0;
+		Modes.mag_buffers[i].sampleTimestamp = 0;
+	}
 
-    // Validate the users Lat/Lon home location inputs
-    if ( (Modes.fUserLat >   90.0)  // Latitude must be -90 to +90
-      || (Modes.fUserLat <  -90.0)  // and 
-      || (Modes.fUserLon >  360.0)  // Longitude must be -180 to +360
-      || (Modes.fUserLon < -180.0) ) {
-        Modes.fUserLat = Modes.fUserLon = 0.0;
-    } else if (Modes.fUserLon > 180.0) { // If Longitude is +180 to +360, make it -180 to 0
-        Modes.fUserLon -= 360.0;
-    }
-    // If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the 
-    // Atlantic ocean off the west coast of Africa. This is unlikely to be correct. 
-    // Set the user LatLon valid flag only if either Lat or Lon are non zero. Note the Greenwich meridian 
-    // is at 0.0 Lon,so we must check for either fLat or fLon being non zero not both. 
-    // Testing the flag at runtime will be much quicker than ((fLon != 0.0) || (fLat != 0.0))
-    Modes.bUserFlags &= ~MODES_USER_LATLON_VALID;
-    if ((Modes.fUserLat != 0.0) || (Modes.fUserLon != 0.0)) {
-        Modes.bUserFlags |= MODES_USER_LATLON_VALID;
-    }
+	// Validate the users Lat/Lon home location inputs
+	if ((Modes.fUserLat > 90.0)				// Latitude must be -90 to +90
+			|| (Modes.fUserLat < -90.0)		// and
+			|| (Modes.fUserLon > 360.0)		// Longitude must be -180 to +360
+			|| (Modes.fUserLon < -180.0)) {
+		Modes.fUserLat = Modes.fUserLon = 0.0;
+	} else if (Modes.fUserLon > 180.0) {	// If Longitude is +180 to +360, make it -180 to 0
+		Modes.fUserLon -= 360.0;
+	}
 
-    // Limit the maximum requested raw output size to less than one Ethernet Block 
-    if (Modes.net_output_flush_size > (MODES_OUT_FLUSH_SIZE))
-      {Modes.net_output_flush_size = MODES_OUT_FLUSH_SIZE;}
-    if (Modes.net_output_flush_interval > (MODES_OUT_FLUSH_INTERVAL))
-      {Modes.net_output_flush_interval = MODES_OUT_FLUSH_INTERVAL;}
-    if (Modes.net_sndbuf_size > (MODES_NET_SNDBUF_MAX))
-      {Modes.net_sndbuf_size = MODES_NET_SNDBUF_MAX;}
+	// If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the
+	// Atlantic ocean off the west coast of Africa. This is unlikely to be correct.
+	// Set the user LatLon valid flag only if either Lat or Lon are non zero. Note the Greenwich meridian
+	// is at 0.0 Lon,so we must check for either fLat or fLon being non zero not both.
+	// Testing the flag at runtime will be much quicker than ((fLon != 0.0) || (fLat != 0.0))
+	Modes.bUserFlags &= ~(MODES_USER_LATLON_VALID);
+	if ((Modes.fUserLat != 0.0) || (Modes.fUserLon != 0.0)) {
+		Modes.bUserFlags |= MODES_USER_LATLON_VALID;
+	}
 
-    // compute UC8 magnitude lookup table
-    for (i = 0; i <= 255; i++) {
-        for (q = 0; q <= 255; q++) {
-            float fI, fQ, magsq;
+	// Limit the maximum requested raw output size to less than one Ethernet Block
+	if (Modes.net_output_flush_size > (MODES_OUT_FLUSH_SIZE)) {
+		Modes.net_output_flush_size = MODES_OUT_FLUSH_SIZE;
+	}
 
-            fI = (i - 127.5) / 127.5;
-            fQ = (q - 127.5) / 127.5;
-            magsq = fI * fI + fQ * fQ;
-            if (magsq > 1)
-                magsq = 1;
+	if (Modes.net_output_flush_interval > (MODES_OUT_FLUSH_INTERVAL)) {
+		Modes.net_output_flush_interval = MODES_OUT_FLUSH_INTERVAL;
+	}
 
-            Modes.maglut[le16toh((i*256)+q)] = (uint16_t) round(sqrtf(magsq) * 65535.0);
-        }
-    }
+	if (Modes.net_sndbuf_size > (MODES_NET_SNDBUF_MAX)) {
+		Modes.net_sndbuf_size = MODES_NET_SNDBUF_MAX;
+	}
 
-    // Prepare the log10 lookup table: 100log10(x)
-    Modes.log10lut[0] = 0; // poorly defined..
-    for (i = 1; i <= 65535; i++) {
-        Modes.log10lut[i] = (uint16_t) round(100.0 * log10(i));
-    }
+	// compute UC8 magnitude lookup table
+	for (i = 0; i <= 255; i++) {
+		for (q = 0; q <= 255; q++) {
+			float fI;
+			float fQ;
+			float magsq;
 
-    // Prepare error correction tables
-    modesChecksumInit(Modes.nfix_crc);
-    icaoFilterInit();
+			fI = (i - 127.5) / 127.5;
+			fQ = (q - 127.5) / 127.5;
+			magsq = fI * fI + fQ * fQ;
+			if (magsq > 1) {
+				magsq = 1;
+			}
 
-    if (Modes.show_only)
-        icaoFilterAdd(Modes.show_only);
+			Modes.maglut[le16toh((i * 256) + q)] = (uint16_t)round(sqrtf(magsq) * 65535.0);
+		}
+	}
 
-    // Prepare sample conversion
-    if (!Modes.net_only) {
-        if (Modes.filename == NULL) // using a real RTLSDR, use UC8 input always
-            Modes.input_format = INPUT_UC8;
+	// Prepare the log10 lookup table: 100log10(x)
+	Modes.log10lut[0] = 0; // poorly defined..
+	for (i = 1; i <= 65535; i++) {
+		Modes.log10lut[i] = (uint16_t)round(100.0 * log10(i));
+	}
 
-        Modes.converter_function = init_converter(Modes.input_format,
-                                                  Modes.sample_rate,
-                                                  Modes.dc_filter,
-                                                  &Modes.converter_state);
-        if (!Modes.converter_function) {
-            fprintf(stderr, "Can't initialize sample converter, giving up.\n");
-            exit(1);
-        }
-    }
+	// Prepare error correction tables
+	modesChecksumInit(Modes.nfix_crc);
+	icaoFilterInit();
+
+	if (Modes.show_only) {
+		icaoFilterAdd(Modes.show_only);
+	}
+
+	// Prepare sample conversion
+	if (!Modes.net_only) {
+		if (Modes.filename == NULL) {		// using a real RTLSDR, use UC8 input always
+			Modes.input_format = INPUT_UC8;
+		}
+
+		Modes.converter_function = init_converter(Modes.input_format, Modes.sample_rate, Modes.dc_filter, &Modes.converter_state);
+		if (!Modes.converter_function) {
+			fprintf(stderr, "Can't initialize sample converter, giving up.\n");
+			exit(1);
+		}
+	}
 }
 
-static void convert_samples(void *iq,
-                            uint16_t *mag,
-                            unsigned nsamples,
-                            double *power)
-{
-    Modes.converter_function(iq, mag, nsamples, Modes.converter_state, power);
+static void convert_samples(void *iq, uint16_t *mag, unsigned nsamples, double *power) {
+	Modes.converter_function(iq, mag, nsamples, Modes.converter_state, power);
 }
 
 //
@@ -325,7 +343,7 @@ int modesInitRTLSDR(void) {
             free(gains);
             return -1;
         }
-        
+
         if (Modes.gain == MODES_MAX_GAIN) {
             int highest = -1;
             int i;
@@ -772,7 +790,7 @@ void backgroundTasks(void) {
 
     if (Modes.net) {
 	modesNetPeriodicWork();
-    }    
+    }
 
 
     // Refresh screen when in interactive mode
@@ -791,21 +809,21 @@ void backgroundTasks(void) {
         } else {
             Modes.stats_latest_1min = (Modes.stats_latest_1min + 1) % 15;
             Modes.stats_1min[Modes.stats_latest_1min] = Modes.stats_current;
-            
+
             add_stats(&Modes.stats_current, &Modes.stats_alltime, &Modes.stats_alltime);
             add_stats(&Modes.stats_current, &Modes.stats_periodic, &Modes.stats_periodic);
-            
+
             reset_stats(&Modes.stats_5min);
             for (i = 0; i < 5; ++i)
                 add_stats(&Modes.stats_1min[(Modes.stats_latest_1min - i + 15) % 15], &Modes.stats_5min, &Modes.stats_5min);
-            
+
             reset_stats(&Modes.stats_15min);
             for (i = 0; i < 15; ++i)
                 add_stats(&Modes.stats_1min[i], &Modes.stats_15min, &Modes.stats_15min);
-            
+
             reset_stats(&Modes.stats_current);
             Modes.stats_current.start = Modes.stats_current.end = now;
-            
+
             if (Modes.json_dir)
                 writeJsonToFile("stats.json", generateStatsJson);
 
@@ -921,364 +939,393 @@ int verbose_device_search(char *s)
 	fprintf(stderr, "No matching devices found.\n");
 	return -1;
 }
+
+
 //
 //=========================================================================
 //
-int main(int argc, char **argv) {
-    int j;
 
-    // Set sane defaults
-    modesInitConfig();
+int main(int argc, char *argv[]) {
+	int j;
 
-    // signal handlers:
-    signal(SIGINT, sigintHandler);
-    signal(SIGTERM, sigtermHandler);
+	// Set sane defaults
+	modesInitConfig();
 
-    // Parse the command line options
-    for (j = 1; j < argc; j++) {
-        int more = j+1 < argc; // There are more arguments
+	// signal handlers:
+	signal(SIGINT, sigintHandler);
+	signal(SIGTERM, sigtermHandler);
 
-        if (!strcmp(argv[j],"--device-index") && more) {
-            Modes.dev_name = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--gain") && more) {
-            Modes.gain = (int) (atof(argv[++j])*10); // Gain is in tens of DBs
-        } else if (!strcmp(argv[j],"--enable-agc")) {
-            Modes.enable_agc++;
-        } else if (!strcmp(argv[j],"--freq") && more) {
-            Modes.freq = (int) strtoll(argv[++j],NULL,10);
-        } else if (!strcmp(argv[j],"--ifile") && more) {
-            Modes.filename = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--iformat") && more) {
-            ++j;
-            if (!strcasecmp(argv[j], "uc8")) {
-                Modes.input_format = INPUT_UC8;
-            } else if (!strcasecmp(argv[j], "sc16")) {
-                Modes.input_format = INPUT_SC16;
-            } else if (!strcasecmp(argv[j], "sc16q11")) {
-                Modes.input_format = INPUT_SC16Q11;
-            } else {
-                fprintf(stderr, "Input format '%s' not understood (supported values: UC8, SC16, SC16Q11)\n",
-                        argv[j]);
-                exit(1);
-            }
-        } else if (!strcmp(argv[j],"--dcfilter")) {
-            Modes.dc_filter = 1;
-        } else if (!strcmp(argv[j],"--measure-noise")) {
-            // Ignored
-        } else if (!strcmp(argv[j],"--fix")) {
-            Modes.nfix_crc = 1;
-        } else if (!strcmp(argv[j],"--no-fix")) {
-            Modes.nfix_crc = 0;
-        } else if (!strcmp(argv[j],"--no-crc-check")) {
-            Modes.check_crc = 0;
-        } else if (!strcmp(argv[j],"--phase-enhance")) {
-            // Ignored, always enabled
-        } else if (!strcmp(argv[j],"--raw")) {
-            Modes.raw = 1;
-        } else if (!strcmp(argv[j],"--net")) {
-            Modes.net = 1;
-        } else if (!strcmp(argv[j],"--modeac")) {
-            Modes.mode_ac = 1;
-        } else if (!strcmp(argv[j],"--net-beast")) {
-            fprintf(stderr, "--net-beast ignored, use --net-bo-port to control where Beast output is generated\n");
-        } else if (!strcmp(argv[j],"--net-only")) {
-            Modes.net = 1;
-            Modes.net_only = 1;
-       } else if (!strcmp(argv[j],"--net-heartbeat") && more) {
-            Modes.net_heartbeat_interval = (uint64_t)(1000 * atof(argv[++j]));
-       } else if (!strcmp(argv[j],"--net-ro-size") && more) {
-            Modes.net_output_flush_size = atoi(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-ro-rate") && more) {
-            Modes.net_output_flush_interval = 1000 * atoi(argv[++j]) / 15; // backwards compatibility
-        } else if (!strcmp(argv[j],"--net-ro-interval") && more) {
-            Modes.net_output_flush_interval = (uint64_t)(1000 * atof(argv[++j]));
-        } else if (!strcmp(argv[j],"--net-ro-port") && more) {
-            free(Modes.net_output_raw_ports);
-            Modes.net_output_raw_ports = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-ri-port") && more) {
-            free(Modes.net_input_raw_ports);
-            Modes.net_input_raw_ports = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-bo-port") && more) {
-            free(Modes.net_output_beast_ports);
-            Modes.net_output_beast_ports = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-bi-port") && more) {
-            free(Modes.net_input_beast_ports);
-            Modes.net_input_beast_ports = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-bind-address") && more) {
-            free(Modes.net_bind_address);
-            Modes.net_bind_address = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-http-port") && more) {
+	// Parse the command line options
+	for (j = 1; j < argc; j++) {
+		int more = j+1 < argc; // There are more arguments
+
+		if (!strcmp(argv[j],"--device-index") && more) {
+			Modes.dev_name = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--gain") && more) {
+			Modes.gain = (int) (atof(argv[++j])*10); // Gain is in tens of DBs
+		} else if (!strcmp(argv[j],"--enable-agc")) {
+			Modes.enable_agc++;
+		} else if (!strcmp(argv[j],"--freq") && more) {
+			Modes.freq = (int) strtoll(argv[++j],NULL,10);
+		} else if (!strcmp(argv[j],"--ifile") && more) {
+			Modes.filename = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--iformat") && more) {
+			++j;
+			if (!strcasecmp(argv[j], "uc8")) {
+				Modes.input_format = INPUT_UC8;
+			} else if (!strcasecmp(argv[j], "sc16")) {
+				Modes.input_format = INPUT_SC16;
+			} else if (!strcasecmp(argv[j], "sc16q11")) {
+				Modes.input_format = INPUT_SC16Q11;
+			} else {
+				fprintf(stderr, "Input format '%s' not understood (supported values: UC8, SC16, SC16Q11)\n", argv[j]);
+				exit(1);
+			}
+		} else if (!strcmp(argv[j],"--dcfilter")) {
+			Modes.dc_filter = 1;
+		} else if (!strcmp(argv[j],"--measure-noise")) {
+			// Ignored
+		} else if (!strcmp(argv[j],"--fix")) {
+			Modes.nfix_crc = 1;
+		} else if (!strcmp(argv[j],"--no-fix")) {
+			Modes.nfix_crc = 0;
+		} else if (!strcmp(argv[j],"--no-crc-check")) {
+			Modes.check_crc = 0;
+		} else if (!strcmp(argv[j],"--phase-enhance")) {
+			// Ignored, always enabled
+		} else if (!strcmp(argv[j],"--raw")) {
+			Modes.raw = 1;
+		} else if (!strcmp(argv[j],"--net")) {
+			Modes.net = 1;
+		} else if (!strcmp(argv[j],"--modeac")) {
+			Modes.mode_ac = 1;
+		} else if (!strcmp(argv[j],"--net-beast")) {
+			fprintf(stderr, "--net-beast ignored, use --net-bo-port to control where Beast output is generated\n");
+		} else if (!strcmp(argv[j],"--net-only")) {
+			Modes.net = 1;
+			Modes.net_only = 1;
+	   } else if (!strcmp(argv[j],"--net-heartbeat") && more) {
+			Modes.net_heartbeat_interval = (uint64_t)(1000 * atof(argv[++j]));
+	   } else if (!strcmp(argv[j],"--net-ro-size") && more) {
+			Modes.net_output_flush_size = atoi(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-ro-rate") && more) {
+			Modes.net_output_flush_interval = 1000 * atoi(argv[++j]) / 15; // backwards compatibility
+		} else if (!strcmp(argv[j],"--net-ro-interval") && more) {
+			Modes.net_output_flush_interval = (uint64_t)(1000 * atof(argv[++j]));
+		} else if (!strcmp(argv[j],"--net-ro-port") && more) {
+			free(Modes.net_output_raw_ports);
+			Modes.net_output_raw_ports = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-ri-port") && more) {
+			free(Modes.net_input_raw_ports);
+			Modes.net_input_raw_ports = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-bo-port") && more) {
+			free(Modes.net_output_beast_ports);
+			Modes.net_output_beast_ports = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-bi-port") && more) {
+			free(Modes.net_input_beast_ports);
+			Modes.net_input_beast_ports = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-bind-address") && more) {
+			free(Modes.net_bind_address);
+			Modes.net_bind_address = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-http-port") && more) {
 #ifdef ENABLE_WEBSERVER
-            free(Modes.net_http_ports);
-            Modes.net_http_ports = strdup(argv[++j]);
+			free(Modes.net_http_ports);
+			Modes.net_http_ports = strdup(argv[++j]);
 #else
-            if (strcmp(argv[++j], "0")) {
-                fprintf(stderr, "warning: --net-http-port not supported in this build, option ignored.\n");
-            }
+			if (strcmp(argv[++j], "0")) {
+				fprintf(stderr, "warning: --net-http-port not supported in this build, option ignored.\n");
+			}
 #endif
-        } else if (!strcmp(argv[j],"--net-sbs-port") && more) {
-            free(Modes.net_output_sbs_ports);
-            Modes.net_output_sbs_ports = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-buffer") && more) {
-            Modes.net_sndbuf_size = atoi(argv[++j]);
-        } else if (!strcmp(argv[j],"--net-verbatim")) {
-            Modes.net_verbatim = 1;
-        } else if (!strcmp(argv[j],"--forward-mlat")) {
-            Modes.forward_mlat = 1;
-        } else if (!strcmp(argv[j],"--onlyaddr")) {
-            Modes.onlyaddr = 1;
-        } else if (!strcmp(argv[j],"--metric")) {
-            Modes.metric = 1;
-        } else if (!strcmp(argv[j],"--hae") || !strcmp(argv[j],"--gnss")) {
-            Modes.use_gnss = 1;
-        } else if (!strcmp(argv[j],"--aggressive")) {
+		} else if (!strcmp(argv[j],"--net-sbs-port") && more) {
+			free(Modes.net_output_sbs_ports);
+			Modes.net_output_sbs_ports = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-buffer") && more) {
+			Modes.net_sndbuf_size = atoi(argv[++j]);
+		} else if (!strcmp(argv[j],"--net-verbatim")) {
+			Modes.net_verbatim = 1;
+		} else if (!strcmp(argv[j],"--forward-mlat")) {
+			Modes.forward_mlat = 1;
+		} else if (!strcmp(argv[j],"--onlyaddr")) {
+			Modes.onlyaddr = 1;
+		} else if (!strcmp(argv[j],"--metric")) {
+			Modes.metric = 1;
+		} else if (!strcmp(argv[j],"--hae") || !strcmp(argv[j],"--gnss")) {
+			Modes.use_gnss = 1;
+		} else if (!strcmp(argv[j],"--aggressive")) {
 #ifdef ALLOW_AGGRESSIVE
-            Modes.nfix_crc = MODES_MAX_BITERRORS;
-            Modes.net_verbatim = 1;
+			Modes.nfix_crc = MODES_MAX_BITERRORS;
+			Modes.net_verbatim = 1;
 #else
-            fprintf(stderr, "warning: --aggressive not supported in this build, option ignored.\n");
+			fprintf(stderr, "warning: --aggressive not supported in this build, option ignored.\n");
 #endif
-        } else if (!strcmp(argv[j],"--interactive")) {
-            Modes.interactive = Modes.throttle = 1;
-        } else if (!strcmp(argv[j],"--throttle")) {
-            Modes.throttle = 1;
-        } else if (!strcmp(argv[j],"--interactive-rows") && more) {
-            Modes.interactive_rows = atoi(argv[++j]);
-        } else if (!strcmp(argv[j],"--interactive-ttl") && more) {
-            Modes.interactive_display_ttl = (uint64_t)(1000 * atof(argv[++j]));
-        } else if (!strcmp(argv[j],"--lat") && more) {
-            Modes.fUserLat = atof(argv[++j]);
-        } else if (!strcmp(argv[j],"--lon") && more) {
-            Modes.fUserLon = atof(argv[++j]);
-        } else if (!strcmp(argv[j],"--max-range") && more) {
-            Modes.maxRange = atof(argv[++j]) * 1852.0; // convert to metres
-        } else if (!strcmp(argv[j],"--debug") && more) {
-            char *f = argv[++j];
-            while(*f) {
-                switch(*f) {
-                case 'D': Modes.debug |= MODES_DEBUG_DEMOD; break;
-                case 'd': Modes.debug |= MODES_DEBUG_DEMODERR; break;
-                case 'C': Modes.debug |= MODES_DEBUG_GOODCRC; break;
-                case 'c': Modes.debug |= MODES_DEBUG_BADCRC; break;
-                case 'p': Modes.debug |= MODES_DEBUG_NOPREAMBLE; break;
-                case 'n': Modes.debug |= MODES_DEBUG_NET; break;
-                case 'j': Modes.debug |= MODES_DEBUG_JS; break;
-                default:
-                    fprintf(stderr, "Unknown debugging flag: %c\n", *f);
-                    exit(1);
-                    break;
-                }
-                f++;
-            }
-        } else if (!strcmp(argv[j],"--stats")) {
-            if (!Modes.stats)
-                Modes.stats = (uint64_t)1 << 60; // "never"
-        } else if (!strcmp(argv[j],"--stats-range")) {
-            Modes.stats_range_histo = 1;
-        } else if (!strcmp(argv[j],"--stats-every") && more) {
-            Modes.stats = (uint64_t) (1000 * atof(argv[++j]));
-        } else if (!strcmp(argv[j],"--snip") && more) {
-            snipMode(atoi(argv[++j]));
-            exit(0);
-        } else if (!strcmp(argv[j],"--help")) {
-            showHelp();
-            exit(0);
-        } else if (!strcmp(argv[j],"--ppm") && more) {
-            Modes.ppm_error = atoi(argv[++j]);
+		} else if (!strcmp(argv[j],"--interactive")) {
+			Modes.interactive = Modes.throttle = 1;
+		} else if (!strcmp(argv[j],"--throttle")) {
+			Modes.throttle = 1;
+		} else if (!strcmp(argv[j],"--interactive-rows") && more) {
+			Modes.interactive_rows = atoi(argv[++j]);
+		} else if (!strcmp(argv[j],"--interactive-ttl") && more) {
+			Modes.interactive_display_ttl = (uint64_t)(1000 * atof(argv[++j]));
+		} else if (!strcmp(argv[j],"--lat") && more) {
+			Modes.fUserLat = atof(argv[++j]);
+		} else if (!strcmp(argv[j],"--lon") && more) {
+			Modes.fUserLon = atof(argv[++j]);
+		} else if (!strcmp(argv[j],"--max-range") && more) {
+			Modes.maxRange = atof(argv[++j]) * 1852.0; // convert to metres
+		} else if (!strcmp(argv[j],"--debug") && more) {
+			char *f = argv[++j];
+			while (*f) {
+				switch (*f) {
+					case 'D':
+						Modes.debug |= MODES_DEBUG_DEMOD;
+						break;
+
+					case 'd':
+						Modes.debug |= MODES_DEBUG_DEMODERR;
+						break;
+
+					case 'C':
+						Modes.debug |= MODES_DEBUG_GOODCRC;
+						break;
+
+					case 'c':
+						Modes.debug |= MODES_DEBUG_BADCRC;
+						break;
+
+					case 'p':
+						Modes.debug |= MODES_DEBUG_NOPREAMBLE;
+						break;
+
+					case 'n':
+						Modes.debug |= MODES_DEBUG_NET;
+						break;
+
+					case 'j':
+						Modes.debug |= MODES_DEBUG_JS;
+						break;
+
+					default:
+						fprintf(stderr, "Unknown debugging flag: %c\n", *f);
+						exit(1);
+						break;
+				}
+				f++;
+			}
+		} else if (!strcmp(argv[j],"--stats")) {
+			if (!Modes.stats)
+				Modes.stats = (uint64_t)1 << 60; // "never"
+		} else if (!strcmp(argv[j],"--stats-range")) {
+			Modes.stats_range_histo = 1;
+		} else if (!strcmp(argv[j],"--stats-every") && more) {
+			Modes.stats = (uint64_t) (1000 * atof(argv[++j]));
+		} else if (!strcmp(argv[j],"--snip") && more) {
+			snipMode(atoi(argv[++j]));
+			exit(0);
+		} else if (!strcmp(argv[j],"--help")) {
+			showHelp();
+			exit(0);
+		} else if (!strcmp(argv[j],"--ppm") && more) {
+			Modes.ppm_error = atoi(argv[++j]);
 #ifdef HAVE_RTL_BIAST
-        } else if (!strcmp(argv[j], "--enable-rtlsdr-biast")) {
-            Modes.enable_rtlsdr_biast = 1;
+		} else if (!strcmp(argv[j], "--enable-rtlsdr-biast")) {
+			Modes.enable_rtlsdr_biast = 1;
 #endif
-        } else if (!strcmp(argv[j],"--quiet")) {
-            Modes.quiet = 1;
-        } else if (!strcmp(argv[j],"--show-only") && more) {
-            Modes.show_only = (uint32_t) strtoul(argv[++j], NULL, 16);
-        } else if (!strcmp(argv[j],"--mlat")) {
-            Modes.mlat = 1;
-        } else if (!strcmp(argv[j],"--interactive-rtl1090")) {
-            Modes.interactive = 1;
-            Modes.interactive_rtl1090 = 1;
-        } else if (!strcmp(argv[j],"--oversample")) {
-            // Ignored
-        } else if (!strcmp(argv[j], "--html-dir") && more) {
-            Modes.html_dir = strdup(argv[++j]);
+		} else if (!strcmp(argv[j],"--quiet")) {
+			Modes.quiet = 1;
+		} else if (!strcmp(argv[j],"--show-only") && more) {
+			Modes.show_only = (uint32_t) strtoul(argv[++j], NULL, 16);
+		} else if (!strcmp(argv[j],"--mlat")) {
+			Modes.mlat = 1;
+		} else if (!strcmp(argv[j],"--interactive-rtl1090")) {
+			Modes.interactive = 1;
+			Modes.interactive_rtl1090 = 1;
+		} else if (!strcmp(argv[j],"--oversample")) {
+			// Ignored
+		} else if (!strcmp(argv[j], "--html-dir") && more) {
+			Modes.html_dir = strdup(argv[++j]);
 #ifndef _WIN32
-        } else if (!strcmp(argv[j], "--write-json") && more) {
-            Modes.json_dir = strdup(argv[++j]);
-        } else if (!strcmp(argv[j], "--write-json-every") && more) {
-            Modes.json_interval = (uint64_t)(1000 * atof(argv[++j]));
-            if (Modes.json_interval < 100) // 0.1s
-                Modes.json_interval = 100;
-        } else if (!strcmp(argv[j], "--json-location-accuracy") && more) {
-            Modes.json_location_accuracy = atoi(argv[++j]);
+		} else if (!strcmp(argv[j], "--write-json") && more) {
+			Modes.json_dir = strdup(argv[++j]);
+		} else if (!strcmp(argv[j], "--write-json-every") && more) {
+			Modes.json_interval = (uint64_t)(1000 * atof(argv[++j]));
+			if (Modes.json_interval < 100) // 0.1s
+				Modes.json_interval = 100;
+		} else if (!strcmp(argv[j], "--json-location-accuracy") && more) {
+			Modes.json_location_accuracy = atoi(argv[++j]);
 #endif
-        } else {
-            fprintf(stderr,
-                "Unknown or not enough arguments for option '%s'.\n\n",
-                argv[j]);
-            showHelp();
-            exit(1);
-        }
-    }
+		} else {
+			fprintf(stderr, "Unknown or not enough arguments for option '%s'.\n\n", argv[j]);
+			showHelp();
+			exit(1);
+		}
+	}
 
 #ifdef _WIN32
-    // Try to comply with the Copyright license conditions for binary distribution
-    if (!Modes.quiet) {showCopyright();}
+	// Try to comply with the Copyright license conditions for binary distribution
+	if (!Modes.quiet) {
+		showCopyright();
+	}
 #endif
 
 #ifndef _WIN32
-    // Setup for SIGWINCH for handling lines
-    if (Modes.interactive) {signal(SIGWINCH, sigWinchCallback);}
+	// Setup for SIGWINCH for handling lines
+	if (Modes.interactive) {
+		signal(SIGWINCH, sigWinchCallback);
+	}
 #endif
 
-    // Initialization
-    log_with_timestamp("%s %s starting up.", MODES_DUMP1090_VARIANT, MODES_DUMP1090_VERSION);
-    modesInit();
+	// Initialization
+	log_with_timestamp("%s %s starting up.", MODES_DUMP1090_VARIANT, MODES_DUMP1090_VERSION);
+	modesInit();
 
-    if (Modes.net_only) {
-        fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
-    } else if (Modes.filename == NULL) {
-        if (modesInitRTLSDR() < 0) {
-            exit(1);
-        }
-    } else {
-        if (Modes.filename[0] == '-' && Modes.filename[1] == '\0') {
-            Modes.fd = STDIN_FILENO;
-        } else if ((Modes.fd = open(Modes.filename,
+	if (Modes.net_only) {
+		fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
+	} else if (Modes.filename == NULL) {
+		if (modesInitRTLSDR() < 0) {
+			exit(1);
+		}
+	} else {
+		if (Modes.filename[0] == '-' && Modes.filename[1] == '\0') {
+			Modes.fd = STDIN_FILENO;
+		} else if ((Modes.fd = open(Modes.filename,
 #ifdef _WIN32
-                                    (O_RDONLY | O_BINARY)
+									(O_RDONLY | O_BINARY)
 #else
-                                    (O_RDONLY)
+									(O_RDONLY)
 #endif
-                                    )) == -1) {
-            perror("Opening data file");
-            exit(1);
-        }
-    }
-    if (Modes.net) modesInitNet();
+									)) == -1) {
+			perror("Opening data file");
+			exit(1);
+		}
+	}
 
-    // init stats:
-    Modes.stats_current.start = Modes.stats_current.end =
-        Modes.stats_alltime.start = Modes.stats_alltime.end =
-        Modes.stats_periodic.start = Modes.stats_periodic.end =
-        Modes.stats_5min.start = Modes.stats_5min.end =
-        Modes.stats_15min.start = Modes.stats_15min.end = mstime();
+	if (Modes.net) {
+		modesInitNet();
+	}
 
-    for (j = 0; j < 15; ++j)
-        Modes.stats_1min[j].start = Modes.stats_1min[j].end = Modes.stats_current.start;
+	// init stats:
+	Modes.stats_current.start = Modes.stats_current.end =
+			Modes.stats_alltime.start = Modes.stats_alltime.end =
+			Modes.stats_periodic.start = Modes.stats_periodic.end =
+			Modes.stats_5min.start = Modes.stats_5min.end =
+			Modes.stats_15min.start = Modes.stats_15min.end = mstime();
 
-    // write initial json files so they're not missing
-    writeJsonToFile("receiver.json", generateReceiverJson);
-    writeJsonToFile("stats.json", generateStatsJson);
-    writeJsonToFile("aircraft.json", generateAircraftJson);
+	for (j = 0; j < 15; ++j) {
+		Modes.stats_1min[j].start = Modes.stats_1min[j].end = Modes.stats_current.start;
+	}
 
-    // If the user specifies --net-only, just run in order to serve network
-    // clients without reading data from the RTL device
-    if (Modes.net_only) {
-        while (!Modes.exit) {
-            struct timespec start_time;
+	// write initial json files so they're not missing
+	writeJsonToFile("receiver.json", generateReceiverJson);
+	writeJsonToFile("stats.json", generateStatsJson);
+	writeJsonToFile("aircraft.json", generateAircraftJson);
 
-            start_cpu_timing(&start_time);
-            backgroundTasks();
-            end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+	// If the user specifies --net-only, just run in order to serve network
+	// clients without reading data from the RTL device
+	if (Modes.net_only) {
+		while (!Modes.exit) {
+			struct timespec start_time;
 
-            usleep(100000);
-        }
-    } else {
-        int watchdogCounter = 10; // about 1 second
+			start_cpu_timing(&start_time);
+			backgroundTasks();
+			end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
 
-        // Create the thread that will read the data from the device.
-        pthread_mutex_lock(&Modes.data_mutex);
-        pthread_create(&Modes.reader_thread, NULL, readerThreadEntryPoint, NULL);
+			usleep(100000);
+		}
+	} else {
+		int watchdogCounter = 10; // about 1 second
 
-        while (Modes.exit == 0) {
-            struct timespec start_time;
+		// Create the thread that will read the data from the device.
+		pthread_mutex_lock(&Modes.data_mutex);
+		pthread_create(&Modes.reader_thread, NULL, readerThreadEntryPoint, NULL);
 
-            if (Modes.first_free_buffer == Modes.first_filled_buffer) {
-                /* wait for more data.
-                 * we should be getting data every 50-60ms. wait for max 100ms before we give up and do some background work.
-                 * this is fairly aggressive as all our network I/O runs out of the background work!
-                 */
+		while (Modes.exit == 0) {
+			struct timespec start_time;
 
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_nsec += 100000000;
-                normalize_timespec(&ts);
+			if (Modes.first_free_buffer == Modes.first_filled_buffer) {
+				/* wait for more data.
+				 * we should be getting data every 50-60ms. wait for max 100ms before we give up and do some background work.
+				 * this is fairly aggressive as all our network I/O runs out of the background work!
+				 */
 
-                pthread_cond_timedwait(&Modes.data_cond, &Modes.data_mutex, &ts); // This unlocks Modes.data_mutex, and waits for Modes.data_cond
-            }
+				struct timespec ts;
+				clock_gettime(CLOCK_REALTIME, &ts);
+				ts.tv_nsec += 100000000;
+				normalize_timespec(&ts);
 
-            // Modes.data_mutex is locked, and possibly we have data.
+				pthread_cond_timedwait(&Modes.data_cond, &Modes.data_mutex, &ts); // This unlocks Modes.data_mutex, and waits for Modes.data_cond
+			}
 
-            // copy out reader CPU time and reset it
-            add_timespecs(&Modes.reader_cpu_accumulator, &Modes.stats_current.reader_cpu, &Modes.stats_current.reader_cpu);
-            Modes.reader_cpu_accumulator.tv_sec = 0;
-            Modes.reader_cpu_accumulator.tv_nsec = 0;
+			// Modes.data_mutex is locked, and possibly we have data.
 
-            if (Modes.first_free_buffer != Modes.first_filled_buffer) {
-                // FIFO is not empty, process one buffer.
+			// copy out reader CPU time and reset it
+			add_timespecs(&Modes.reader_cpu_accumulator, &Modes.stats_current.reader_cpu, &Modes.stats_current.reader_cpu);
+			Modes.reader_cpu_accumulator.tv_sec = 0;
+			Modes.reader_cpu_accumulator.tv_nsec = 0;
 
-                struct mag_buf *buf;
+			if (Modes.first_free_buffer != Modes.first_filled_buffer) {
+				// FIFO is not empty, process one buffer.
 
-                start_cpu_timing(&start_time);
-                buf = &Modes.mag_buffers[Modes.first_filled_buffer];
+				struct mag_buf *buf;
 
-                // Process data after releasing the lock, so that the capturing
-                // thread can read data while we perform computationally expensive
-                // stuff at the same time.
-                pthread_mutex_unlock(&Modes.data_mutex);
+				start_cpu_timing(&start_time);
+				buf = &Modes.mag_buffers[Modes.first_filled_buffer];
 
-                demodulate2400(buf);
-                if (Modes.mode_ac) {
-                    demodulate2400AC(buf);
-                }
+				// Process data after releasing the lock, so that the capturing
+				// thread can read data while we perform computationally expensive
+				// stuff at the same time.
+				pthread_mutex_unlock(&Modes.data_mutex);
 
-                Modes.stats_current.samples_processed += buf->length;
-                Modes.stats_current.samples_dropped += buf->dropped;
-                end_cpu_timing(&start_time, &Modes.stats_current.demod_cpu);
+				demodulate2400(buf);
+				if (Modes.mode_ac) {
+					demodulate2400AC(buf);
+				}
 
-                // Mark the buffer we just processed as completed.
-                pthread_mutex_lock(&Modes.data_mutex);
-                Modes.first_filled_buffer = (Modes.first_filled_buffer + 1) % MODES_MAG_BUFFERS;
-                pthread_cond_signal(&Modes.data_cond);
-                pthread_mutex_unlock(&Modes.data_mutex);
-                watchdogCounter = 10;
-            } else {
-                // Nothing to process this time around.
-                pthread_mutex_unlock(&Modes.data_mutex);
-                if (--watchdogCounter <= 0) {
-                    log_with_timestamp("No data received from the dongle for a long time, it may have wedged");
-                    watchdogCounter = 600;
-                }
-            }
+				Modes.stats_current.samples_processed += buf->length;
+				Modes.stats_current.samples_dropped += buf->dropped;
+				end_cpu_timing(&start_time, &Modes.stats_current.demod_cpu);
 
-            start_cpu_timing(&start_time);
-            backgroundTasks();
-            end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
+				// Mark the buffer we just processed as completed.
+				pthread_mutex_lock(&Modes.data_mutex);
+				Modes.first_filled_buffer = (Modes.first_filled_buffer + 1) % MODES_MAG_BUFFERS;
+				pthread_cond_signal(&Modes.data_cond);
+				pthread_mutex_unlock(&Modes.data_mutex);
+				watchdogCounter = 10;
+			} else {
+				// Nothing to process this time around.
+				pthread_mutex_unlock(&Modes.data_mutex);
+				if (--watchdogCounter <= 0) {
+					log_with_timestamp("No data received from the dongle for a long time, it may have wedged");
+					watchdogCounter = 600;
+				}
+			}
 
-            pthread_mutex_lock(&Modes.data_mutex);
-        }
+			start_cpu_timing(&start_time);
+			backgroundTasks();
+			end_cpu_timing(&start_time, &Modes.stats_current.background_cpu);
 
-        pthread_mutex_unlock(&Modes.data_mutex);
+			pthread_mutex_lock(&Modes.data_mutex);
+		}
 
-        log_with_timestamp("Waiting for receive thread termination");
-        pthread_join(Modes.reader_thread,NULL);     // Wait on reader thread exit
-        pthread_cond_destroy(&Modes.data_cond);     // Thread cleanup - only after the reader thread is dead!
-        pthread_mutex_destroy(&Modes.data_mutex);
-    }
+		pthread_mutex_unlock(&Modes.data_mutex);
 
-    // If --stats were given, print statistics
-    if (Modes.stats) {
-        display_total_stats();
-    }
+		log_with_timestamp("Waiting for receive thread termination");
+		pthread_join(Modes.reader_thread,NULL);     // Wait on reader thread exit
+		pthread_cond_destroy(&Modes.data_cond);     // Thread cleanup - only after the reader thread is dead!
+		pthread_mutex_destroy(&Modes.data_mutex);
+	}
 
-    cleanup_converter(Modes.converter_state);
-    log_with_timestamp("Normal exit.");
+	// If --stats were given, print statistics
+	if (Modes.stats) {
+		display_total_stats();
+	}
+
+	cleanup_converter(Modes.converter_state);
+	log_with_timestamp("Normal exit.");
 
 #ifndef _WIN32
-    pthread_exit(0);
+	pthread_exit(0);
 #else
-    return (0);
+	return (0);
 #endif
 }
 //
